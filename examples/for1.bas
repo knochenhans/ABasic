@@ -1,0 +1,3 @@
+FOR i = 2 TO 4
+PRINT i
+NEXT i

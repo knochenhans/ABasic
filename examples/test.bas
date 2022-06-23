@@ -1,0 +1,1 @@
+DEFINT a-z

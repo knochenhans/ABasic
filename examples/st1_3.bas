@@ -1,0 +1,1 @@
+PRINT "You are aged "; age
