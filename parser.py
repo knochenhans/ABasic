@@ -12,6 +12,10 @@ class OPERATION_TYPE(Enum):
     COMPARE_GT = auto()
 
 
+# class UNARY_OPERATION_TYPE(Enum):
+#     NEGATION = auto()
+
+
 class Node():
     def __init__(self):
         pass
@@ -53,16 +57,22 @@ class NodeConstantString(NodeConstant):
 
 
 class NodeAssignment(Node):
-    def __init__(self, variable: NodeVariable, expression: NodeExpression):
+    def __init__(self, variable: NodeVariable, expression: Node):
         self.variable = variable
         self.expression = expression
 
 
+class NodeUnaryOperation(Node):
+    def __init__(self, a: Node, operation_type: OPERATION_TYPE):
+        self.a = a
+        self.operation_type = operation_type
+
+
 class NodeBinaryOperation(Node):
-    def __init__(self, a: Node, b: Node, type: OPERATION_TYPE):
+    def __init__(self, a: Node, b: Node, operation_type: OPERATION_TYPE):
         self.a = a
         self.b = b
-        self.type = type
+        self.operation_type = operation_type
 
 
 class If(Node):
@@ -127,25 +137,16 @@ class Parser():
             return NodeConstantInt(int(token.value))
         elif re.match(r'[0-9]+\.[0-9]+', token.value):
             return NodeConstantFloat(float(token.value))
-        raise Exception('Unknown constant type')
+        raise Exception('Failed parsing constant: Unknown constant type')
 
     def parse_assign(self, tokens: list[Token]) -> NodeAssignment:
-        if len(tokens) >= 2:
+        if len(tokens) > 2:
             if tokens[1].type == TOKEN_TYPE.OPERATOR and tokens[1].value == '=':
-                if tokens[2].type == TOKEN_TYPE.NUMBER:
-                    variable = NodeVariable(tokens[0].value)
-                    try:
-                        # expression = self.parse_constant(tokens[2])
-                        expression = self.parse_exp(tokens[2:])
-                    except Exception:
-                        print('Error parsing assign')
-                    else:
-                        tokens.pop(0)
-                        tokens.pop(0)
-                        tokens.pop(0)
-                        return NodeAssignment(variable, expression)
+                variable = NodeVariable(tokens[0].value)
+                expression = self.parse_additive_expression(tokens[2:])
+                return NodeAssignment(variable, expression)
 
-        raise Exception
+        raise Exception('Failed parsing assign')
 
     def parse_string(self, tokens: list[Token]) -> NodeConstantString:
         string = ''
@@ -171,6 +172,25 @@ class Parser():
 
         return NodeConstantString(string)
 
+    def parse_expression(self, tokens: list[Token]) -> Node:
+        # Assign
+        try:
+            assign = self.parse_assign(tokens)
+        except Exception:
+            pass
+        else:
+            return assign
+
+        # Binary operator / Unary operator / Constant / Variable
+        try:
+            expression = self.parse_additive_expression(tokens)
+        except Exception:
+            pass
+        else:
+            return expression
+
+        raise Exception('Failed parsing expression')
+
     def parse_identifier(self, tokens: list[Token]) -> Node:
         token = tokens[0]
 
@@ -179,8 +199,7 @@ class Parser():
                 tokens.pop(0)
                 return NodePrint(self.parse_string(tokens))
             case _:
-                return self.parse_assign(tokens)
-        raise Exception
+                return self.parse_expression(tokens)
 
     # def eval(self, number_l: NodeConstant, number_r: NodeConstant, operator: str) -> NodeConstant:
     #     match operator:
@@ -210,28 +229,78 @@ class Parser():
                 return OPERATION_TYPE.COMPARE_GT
         raise Exception('Unknown operator')
 
-    def parse_exp(self, tokens: list[Token]) -> NodeExpression:
-        match len(tokens):
-            case 1:
-                if tokens[0].type == TOKEN_TYPE.NUMBER:
-                    return NodeExpression(self.parse_constant(tokens[0]))
-            case 3:
-                number_l = None
-                number_r = None
-                operator = ''
+    def parse_exp_identifier(self, token: Token) -> Node:
+        match token.type:
+            case TOKEN_TYPE.NUMBER:
+                return self.parse_constant(token)
+            case TOKEN_TYPE.IDENTIFIER:
+                return NodeVariable(token.value)
+        raise Exception('Unknown identifier in expression')
 
-                if tokens[0].type == TOKEN_TYPE.NUMBER:
-                    number_l = self.parse_constant(tokens[0])
+    def parse_factor(self, tokens: list[Token]) -> Node:
+        token = tokens.pop(0)
 
-                if tokens[1].type == TOKEN_TYPE.OPERATOR:
-                    operator = self.get_operator_type(tokens[1])
+        if token.type == TOKEN_TYPE.SEPARATOR:
+            if token.value == '(':
+                # "(" <exp> ")"
+                expression = self.parse_additive_expression(tokens)
 
-                if tokens[2].type == TOKEN_TYPE.NUMBER:
-                    number_r = self.parse_constant(tokens[2])
+                token = tokens.pop(0)
 
-                if number_l and number_r and operator:
-                    return NodeExpression(NodeBinaryOperation(number_l, number_r, operator))
-        raise Exception('Failed parsing expression')
+                if token.type == TOKEN_TYPE.SEPARATOR:
+                    if token.value == ')':
+                        return expression
+                    else:
+                        raise Exception('Failed parsing factor: Missing closing parenthesis')
+
+        elif token.type == TOKEN_TYPE.OPERATOR:
+            # <unary_op> <factor>
+            operator = self.get_operator_type(token)
+            factor = self.parse_factor(tokens)
+            return NodeUnaryOperation(factor, operator)
+
+        elif token.type == TOKEN_TYPE.NUMBER or token.type == TOKEN_TYPE.IDENTIFIER:
+            return self.parse_exp_identifier(token)
+
+        raise Exception('Failed parsing factor')
+
+    def parse_term(self, tokens: list[Token]) -> Node:
+        # <factor> { ("*" | "/") <factor> }
+        term = self.parse_factor(tokens)
+
+        if len(tokens) > 0:
+            next = tokens[0]
+
+            while next.type == TOKEN_TYPE.OPERATOR and (next.value == '*' or next.value == '/'):
+                operator = self.get_operator_type(tokens.pop(0))
+                next_term = self.parse_factor(tokens)
+                term = NodeBinaryOperation(term, next_term, operator)
+
+                if len(tokens) > 0:
+                    next = tokens[0]
+                else:
+                    break
+
+        return term
+
+    def parse_additive_expression(self, tokens: list[Token]) -> Node:
+        # <term> { ("+" | "-") <term> }
+        term = self.parse_term(tokens)
+
+        if len(tokens) > 0:
+            next = tokens[0]
+
+            while next.type == TOKEN_TYPE.OPERATOR and (next.value == '+' or next.value == '-'):
+                operator = self.get_operator_type(tokens.pop(0))
+                next_term = self.parse_term(tokens)
+                term = NodeBinaryOperation(term, next_term, operator)
+
+                if len(tokens) > 0:
+                    next = tokens[0]
+                else:
+                    break
+
+        return term
 
     def parse(self, tokens: list[Token]) -> AST:
         nodes = []
@@ -243,20 +312,23 @@ class Parser():
             while line:
                 token = line[0]
 
-                match token.type:
-                    case TOKEN_TYPE.IDENTIFIER:
-                        try:
+                try:
+                    match token.type:
+                        case TOKEN_TYPE.IDENTIFIER:
                             nodes.append(self.parse_identifier(line))
-                        except Exception:
-                            print('Parser error')
+                        case _:
+                            nodes.append(self.parse_expression(line))
+                    line = []
+                except Exception:
+                    print('Parser error')
 
         return AST(nodes)
 
     def generate_exp(self, expression: NodeExpression) -> str:
         output = ''
 
-        if isinstance(expression.node, NodeConstantInt) or isinstance(expression.node, NodeConstantFloat):
-            output = expression.node.value
+        if isinstance(expression, NodeConstantInt) or isinstance(expression, NodeConstantFloat):
+            output = expression.value
 
         return str(output)
 

@@ -132,7 +132,7 @@ class TestLexer(unittest.TestCase):
     def test_st1(self):
         lexer = Lexer()
 
-        tokens = lexer.lex_file('st1.bas')
+        tokens = lexer.lex_file('examples/st1.bas')
 
         # Area (20,25), AREAFILL STEP (50, 50)
 
@@ -175,10 +175,18 @@ class TestLexer(unittest.TestCase):
         for t in tokens:
             print(f'{t.value} | {t.type}')
 
-    def test_numbers(self):
+    def test_numbers1(self):
         lexer = Lexer()
 
         tokens = lexer.lex(['12.3'])
+
+        for t in tokens:
+            print(f'{t.value} | {t.type}')
+
+    def test_numbers2(self):
+        lexer = Lexer()
+
+        tokens = lexer.lex(['-3'])
 
         for t in tokens:
             print(f'{t.value} | {t.type}')
@@ -211,6 +219,52 @@ class TestLexer(unittest.TestCase):
 
 
 class TestParser(unittest.TestCase):
+
+    def print_unary_operation(self, exp: NodeUnaryOperation):
+        print(exp.operation_type)
+
+        if isinstance(exp.a, NodeConstant):
+            print(exp.a.value)
+        elif isinstance(exp.a, NodeVariable):
+            print(exp.a.name)
+        elif isinstance(exp.a, NodeUnaryOperation):
+            self.print_unary_operation(exp.a)
+
+    def print_binary_operation(self, exp: NodeBinaryOperation):
+        if isinstance(exp.a, NodeConstant):
+            print(exp.a.value)
+        elif isinstance(exp.a, NodeVariable):
+            print(exp.a.name)
+        elif isinstance(exp.a, NodeBinaryOperation):
+            self.print_binary_operation(exp.a)
+
+        print(exp.operation_type)
+
+        if isinstance(exp.b, NodeConstant):
+            print(exp.b.value)
+        elif isinstance(exp.b, NodeVariable):
+            print(exp.b.name)
+        elif isinstance(exp.b, NodeBinaryOperation):
+            self.print_binary_operation(exp.b)
+
+    def print_assignment(self, assignment: NodeAssignment):
+        if isinstance(assignment.variable, NodeVariable):
+            print(assignment.variable.name)
+
+        print('=')
+
+        if isinstance(assignment.expression, NodeUnaryOperation):
+            self.print_unary_operation(assignment.expression)
+        if isinstance(assignment.expression, NodeBinaryOperation):
+            self.print_binary_operation(assignment.expression)
+
+    def print_expression(self, exp: NodeExpression):
+        if isinstance(exp, NodeConstant):
+            print(exp.value)
+        elif isinstance(exp, NodeVariable):
+            print(exp.name)
+        elif isinstance(exp, NodeBinaryOperation):
+            self.print_binary_operation(exp)
 
     def test_print1(self):
         p = Parser()
@@ -320,27 +374,70 @@ class TestParser(unittest.TestCase):
         p = Parser()
         lexer = Lexer()
 
-        basic_code = '''1 * 2'''
-        
-        tokens = lexer.lex(basic_code.splitlines())
-        expression = p.parse_exp(tokens)
+        basic_code = '1 * 2'
 
-        self.assertEqual(expression.node.a.value, 1)
-        self.assertEqual(expression.node.b.value, 2)
-        self.assertEqual(expression.node.type, OPERATION_TYPE.MULTIPLY)
+        tokens = lexer.lex(basic_code.splitlines())
+        expression = p.parse_additive_expression(tokens)
+
+        self.assertEqual(expression.a.value, 1)
+        self.assertEqual(expression.b.value, 2)
+        self.assertEqual(expression.operation_type, OPERATION_TYPE.MULTIPLY)
 
     def test_exp2(self):
         p = Parser()
         lexer = Lexer()
 
-        basic_code = '''1 + 2 + 3'''
-        
-        tokens = lexer.lex(basic_code.splitlines())
-        expression = p.parse_exp(tokens)
+        basic_code = '1 + 2 - 3 + 4 - 5'
 
-        self.assertEqual(expression.node.a.value, 1)
-        self.assertEqual(expression.node.b.value, 2)
-        self.assertEqual(expression.node.type, OPERATION_TYPE.MULTIPLY)
+        tokens = lexer.lex(basic_code.splitlines())
+        expression = p.parse_additive_expression(tokens)
+
+        self.print_binary_operation(expression)
+
+    def test_exp3(self):
+        p = Parser()
+        lexer = Lexer()
+
+        basic_code = '''x + y * x + z'''
+
+        tokens = lexer.lex(basic_code.splitlines())
+        expression = p.parse_additive_expression(tokens)
+
+        self.print_binary_operation(expression)
+
+    def test_exp4(self):
+        p = Parser()
+        lexer = Lexer()
+
+        basic_code = '''-3'''
+
+        tokens = lexer.lex(basic_code.splitlines())
+        expression = p.parse_additive_expression(tokens)
+
+        self.print_unary_operation(expression)
+
+    def test_exp5(self):
+        p = Parser()
+        lexer = Lexer()
+
+        basic_code = 'x = 1 + (2 + 3) + 1'
+        # basic_code = 'x = -1'
+
+        tokens = lexer.lex(basic_code.splitlines())
+        expression = p.parse(tokens)
+
+        self.print_assignment(expression.nodes[0])
+
+    def test_exp6(self):
+        p = Parser()
+        lexer = Lexer()
+
+        basic_code = '(1 + 2) * 3'
+
+        tokens = lexer.lex(basic_code.splitlines())
+        expression = p.parse(tokens)
+
+        self.print_expression(expression.nodes[0])
 
     # def test_general(self):
     #     p = Parser()
